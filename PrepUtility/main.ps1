@@ -71,9 +71,9 @@ Add-PrepTask -Name "Join Domain / Configure User" `
              -Description "Join domain, set local admin, rename PC." `
              -ScriptPath "modules/10-Join-Domain.ps1"
 
-Add-PrepTask -Name "Install RMM / AV" `
+Add-PrepTask -Name "Send System Info to CRM" `
              -Description "Install your RMM agent and security tools." `
-             -ScriptPath "modules/20-Install-RMM.ps1"
+             -ScriptPath "modules/20-Sent-to-CRM.ps1"
 
 # ---------------------------
 # Load XAML from external file
