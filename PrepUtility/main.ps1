@@ -88,9 +88,13 @@ $Xaml = @"
                             </DataTemplate>
                         </GridViewColumn.CellTemplate>
                     </GridViewColumn>
-                    <GridViewColumn Header="Task" DisplayMemberBinding="{Binding Name}" Width="200"/>
-                    <GridViewColumn Header="Description" DisplayMemberBinding="{Binding Description}" Width="*" />
-                    <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status}" Width="120" />
+
+                    <GridViewColumn Header="Task" DisplayMemberBinding="{Binding Name}" Width="200" />
+
+                    <!-- CHANGED: Width is now a number, not "*" -->
+                    <GridViewColumn Header="Description" DisplayMemberBinding="{Binding Description}" Width="320" />
+
+                    <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status}" Width="100" />
                 </GridView>
             </ListView.View>
         </ListView>
