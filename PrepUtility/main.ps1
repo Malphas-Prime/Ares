@@ -30,7 +30,7 @@ function Get-RemoteScript {
 }
 
 # ---------------------------
-# Define “tasks” for the GUI
+# Define tasks for the GUI
 # ---------------------------
 $Global:PrepTasks = @(
     [pscustomobject]@{
@@ -65,6 +65,8 @@ $Global:PrepTasks = @(
 # ---------------------------
 Add-Type -AssemblyName PresentationFramework
 
+# IMPORTANT:
+# @" must be alone on its line and "@ must be alone on its line.
 $Xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -283,10 +285,12 @@ $Xaml = @"
 </Window>
 "@
 
-# Load XAML
-$Window    = [Windows.Markup.XamlReader]::Parse($Xaml)
-$TaskList  = $Window.FindName("TaskList")
-$RunButton = $Window.FindName("RunButton")
+# ---------------------------
+# Load XAML & hook controls
+# ---------------------------
+$Window      = [Windows.Markup.XamlReader]::Parse($Xaml)
+$TaskList    = $Window.FindName("TaskList")
+$RunButton   = $Window.FindName("RunButton")
 $CloseButton = $Window.FindName("CloseButton")
 $StatusText  = $Window.FindName("StatusText")
 
@@ -319,7 +323,6 @@ $RunButton.Add_Click({
 
         try {
             $scriptContent = Get-RemoteScript -RelativePath $task.ScriptPath
-            # Run in its own scope; you can pass parameters if needed
             & ([scriptblock]::Create($scriptContent))
             $task.Status = "Completed"
         }
@@ -339,7 +342,9 @@ $CloseButton.Add_Click({
     $Window.Close()
 })
 
-# Recommended: require admin
+# ---------------------------
+# Admin check
+# ---------------------------
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     [System.Windows.MessageBox]::Show("Run PowerShell as Administrator for best results.","Warning",'OK','Warning') | Out-Null
 }
