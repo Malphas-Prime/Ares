@@ -9,7 +9,7 @@ if ($DevMode) {
     $Global:ModuleBase = Split-Path -Parent $PSCommandPath
 } else {
     # Raw GitHub URL, or your own server
-    $Global:ModuleBase = "https://raw.githubusercontent.com/YourUser/PrepUtility/main"
+    $Global:ModuleBase = "https://raw.githubusercontent.com/Malphas-Prime/Ares/main/PrepUtility"
 }
 
 function Get-RemoteScript {
