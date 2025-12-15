@@ -30,10 +30,115 @@ function Get-RemoteScript {
 }
 
 # ---------------------------
-# Data model – PSCustomObject
+# UI + Types
 # ---------------------------
 Add-Type -AssemblyName PresentationFramework
 
+# ---------------------------
+# Machine info helpers
+# ---------------------------
+function Get-HostName {
+    return $env:COMPUTERNAME
+}
+
+function Get-ActiveIPv4 {
+    try {
+        # Prefer adapter with default route
+        $defaultIfIndex = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction Stop |
+            Sort-Object RouteMetric, ifMetric |
+            Select-Object -First 1).InterfaceIndex
+
+        if ($null -ne $defaultIfIndex) {
+            $cfg = Get-NetIPConfiguration -InterfaceIndex $defaultIfIndex -ErrorAction Stop
+            $ip  = ($cfg.IPv4Address | Select-Object -First 1).IPv4Address
+            if ($ip) { return $ip }
+        }
+
+        # Fallback: any UP adapter with a non-APIPA IPv4
+        $cfg2 = Get-NetIPConfiguration |
+            Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address } |
+            ForEach-Object {
+                [pscustomobject]@{
+                    IP = ($_.IPv4Address | Select-Object -First 1).IPv4Address
+                }
+            } |
+            Where-Object { $_.IP -and $_.IP -notlike "169.254.*" } |
+            Select-Object -First 1
+
+        return $cfg2.IP
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-NableManagedAV {
+    # Best-effort detection for N-able Managed Antivirus (commonly Bitdefender-based)
+    $hit = [ordered]@{
+        Detected = $false
+        Evidence = @()
+    }
+
+    # Service hints (Bitdefender components vary by version)
+    $serviceHints = @(
+        "bdservicehost",
+        "bdredline",
+        "EPIntegrationService",
+        "Bitdefender*",
+        "BD*"
+    )
+
+    foreach ($s in $serviceHints) {
+        try {
+            $svcs = Get-Service -Name $s -ErrorAction SilentlyContinue
+            foreach ($svc in @($svcs)) {
+                if ($svc) {
+                    $hit.Detected = $true
+                    $hit.Evidence += "Service: $($svc.Name) ($($svc.Status))"
+                }
+            }
+        } catch {}
+    }
+
+    # Uninstall registry (more reliable for product name)
+    $uninstallPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    $nameHints = @(
+        "N-able Managed Antivirus",
+        "Managed Antivirus",
+        "N-able",
+        "Bitdefender Endpoint Security Tools",
+        "Bitdefender"
+    )
+
+    foreach ($path in $uninstallPaths) {
+        try {
+            $apps = Get-ItemProperty -Path $path -ErrorAction SilentlyContinue
+            foreach ($a in @($apps)) {
+                $dn = $a.DisplayName
+                if (-not $dn) { continue }
+
+                foreach ($hint in $nameHints) {
+                    if ($dn -like "*$hint*") {
+                        $hit.Detected = $true
+                        $ver = $a.DisplayVersion
+                        $hit.Evidence += "App: $dn" + ($(if ($ver) { " ($ver)" } else { "" }))
+                        break
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    return [pscustomobject]$hit
+}
+
+# ---------------------------
+# Data model – PSCustomObject
+# ---------------------------
 $Global:PrepTasks = [System.Collections.ObjectModel.ObservableCollection[object]]::new()
 
 function Add-PrepTask {
@@ -93,8 +198,53 @@ $RunButton   = $Window.FindName("RunButton")
 $CloseButton = $Window.FindName("CloseButton")
 $StatusText  = $Window.FindName("StatusText")
 
+# New UI elements
+$HostNameText      = $Window.FindName("HostNameText")
+$ActiveIpText      = $Window.FindName("ActiveIpText")
+$ManagedAvText     = $Window.FindName("ManagedAvText")
+$RefreshInfoButton = $Window.FindName("RefreshInfoButton")
+
 # Bind tasks to list
 $TaskList.ItemsSource = $PrepTasks
+
+function Update-MachineInfoUI {
+    $hn = Get-HostName
+    $ip = Get-ActiveIPv4
+    $av = Test-NableManagedAV
+
+    if ($HostNameText) { $HostNameText.Text = $hn }
+    if ($ActiveIpText) { $ActiveIpText.Text = ($ip ?? "Not found") }
+
+    $avText = if ($av.Detected) {
+        if ($av.Evidence.Count -gt 0) {
+            # Show first evidence item in UI, keep it short
+            "Detected"
+        } else {
+            "Detected"
+        }
+    } else {
+        "Not detected"
+    }
+
+    if ($ManagedAvText) { $ManagedAvText.Text = $avText }
+
+    # Optional: show more detail in the footer status text (not spammy)
+    if ($av.Detected -and $av.Evidence.Count -gt 0) {
+        $StatusText.Text = "AV detected: $($av.Evidence[0])"
+    } else {
+        $StatusText.Text = ""
+    }
+}
+
+# Populate on load
+Update-MachineInfoUI
+
+# Refresh button
+if ($RefreshInfoButton) {
+    $RefreshInfoButton.Add_Click({
+        Update-MachineInfoUI
+    })
+}
 
 # ---------------------------
 # Logic to run selected tasks
