@@ -119,25 +119,37 @@
         </Border>
 
         <!-- Footer -->
-        <DockPanel Grid.Row="2">
-            <TextBlock Name="StatusText"
-                       Margin="2,0,0,0"
-                       VerticalAlignment="Center"
-                       Foreground="#505050"
-                       DockPanel.Dock="Left" />
-            <StackPanel Orientation="Horizontal"
-                        DockPanel.Dock="Right"
-                        HorizontalAlignment="Right">
-                <Button Name="RunButton"
-                        Content="Run Selected"
-                        Width="120"
-                        Margin="0,0,8,0"
-                        Padding="8,4" />
-                <Button Name="CloseButton"
-                        Content="Close"
-                        Width="80"
-                        Padding="8,4" />
-            </StackPanel>
-        </DockPanel>
-    </Grid>
-</Window>
+<DockPanel Grid.Row="2" LastChildFill="True">
+
+    <TextBlock Name="StatusText"
+               Margin="2,0,0,0"
+               VerticalAlignment="Center"
+               Foreground="#505050"
+               DockPanel.Dock="Left" />
+
+    <!-- Right side: logo + buttons -->
+    <StackPanel Orientation="Horizontal"
+                DockPanel.Dock="Right"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center">
+
+        <Image Name="AresLogo"
+               Source="https://ares.mhsysu.com/assets/ares.png"
+               Height="28"
+               Margin="0,0,10,0"
+               Stretch="Uniform"
+               SnapsToDevicePixels="True" />
+
+        <Button Name="RunButton"
+                Content="Run Selected"
+                Width="120"
+                Margin="0,0,8,0"
+                Padding="8,4" />
+
+        <Button Name="CloseButton"
+                Content="Close"
+                Width="80"
+                Padding="8,4" />
+    </StackPanel>
+
+</DockPanel>
