@@ -2,6 +2,9 @@ param(
     [switch]$DevMode # optional: run from local folder for testing
 )
 
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
 # ---------------------------
 # Config: where modules live
 # ---------------------------
@@ -35,7 +38,7 @@ function Get-RemoteScript {
 Add-Type -AssemblyName PresentationFramework
 
 # ---------------------------
-# Machine info helpers
+# Machine info helpers (PS5.1 safe)
 # ---------------------------
 function Get-HostName {
     return $env:COMPUTERNAME
@@ -73,13 +76,13 @@ function Get-ActiveIPv4 {
 }
 
 function Test-NableManagedAV {
-    # Best-effort detection for N-able Managed Antivirus (commonly Bitdefender-based)
+    # Best-effort detection (common N-able Managed AV deployments are Bitdefender-based)
     $hit = [ordered]@{
         Detected = $false
         Evidence = @()
     }
 
-    # Service hints (Bitdefender components vary by version)
+    # Service hints (varies by version)
     $serviceHints = @(
         "bdservicehost",
         "bdredline",
@@ -94,13 +97,13 @@ function Test-NableManagedAV {
             foreach ($svc in @($svcs)) {
                 if ($svc) {
                     $hit.Detected = $true
-                    $hit.Evidence += "Service: $($svc.Name) ($($svc.Status))"
+                    $hit.Evidence += ("Service: {0} ({1})" -f $svc.Name, $svc.Status)
                 }
             }
-        } catch {}
+        } catch { }
     }
 
-    # Uninstall registry (more reliable for product name)
+    # Uninstall registry (more reliable for product naming)
     $uninstallPaths = @(
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
@@ -125,12 +128,16 @@ function Test-NableManagedAV {
                     if ($dn -like "*$hint*") {
                         $hit.Detected = $true
                         $ver = $a.DisplayVersion
-                        $hit.Evidence += "App: $dn" + ($(if ($ver) { " ($ver)" } else { "" }))
+                        if ($ver) {
+                            $hit.Evidence += ("App: {0} ({1})" -f $dn, $ver)
+                        } else {
+                            $hit.Evidence += ("App: {0}" -f $dn)
+                        }
                         break
                     }
                 }
             }
-        } catch {}
+        } catch { }
     }
 
     return [pscustomobject]$hit
@@ -139,7 +146,7 @@ function Test-NableManagedAV {
 # ---------------------------
 # Data model – PSCustomObject
 # ---------------------------
-$Global:PrepTasks = [System.Collections.ObjectModel.ObservableCollection[object]]::new()
+$Global:PrepTasks = New-Object System.Collections.ObjectModel.ObservableCollection[object]
 
 function Add-PrepTask {
     param(
@@ -159,9 +166,9 @@ function Add-PrepTask {
     [void]$Global:PrepTasks.Add($obj)
 }
 
-# Define tasks (edit these to suit your environment)
+# Define tasks
 Add-PrepTask -Name "Install Base Apps" `
-             -Description "Install browser, 7-Zip, PDF reader, etc." `
+             -Description "Pick from the standard app list and install via WinGet." `
              -ScriptPath "modules/01-Install-BaseApps.ps1"
 
 Add-PrepTask -Name "Remove OEM Bloat" `
@@ -173,7 +180,7 @@ Add-PrepTask -Name "Apply Windows Defaults" `
              -ScriptPath "modules/03-Set-Defaults.ps1"
 
 Add-PrepTask -Name "Join Domain / Configure User" `
-             -Description "Join domain, set local admin, rename PC." `
+             -Description "Rename PC, add users, add admins, join domain." `
              -ScriptPath "modules/10-Join-Domain.ps1"
 
 Add-PrepTask -Name "Send System Info to CRM" `
@@ -198,7 +205,7 @@ $RunButton   = $Window.FindName("RunButton")
 $CloseButton = $Window.FindName("CloseButton")
 $StatusText  = $Window.FindName("StatusText")
 
-# New UI elements
+# Machine info UI elements (added in UI.xaml)
 $HostNameText      = $Window.FindName("HostNameText")
 $ActiveIpText      = $Window.FindName("ActiveIpText")
 $ManagedAvText     = $Window.FindName("ManagedAvText")
@@ -213,24 +220,23 @@ function Update-MachineInfoUI {
     $av = Test-NableManagedAV
 
     if ($HostNameText) { $HostNameText.Text = $hn }
-    if ($ActiveIpText) { $ActiveIpText.Text = ($ip ?? "Not found") }
 
-    $avText = if ($av.Detected) {
-        if ($av.Evidence.Count -gt 0) {
-            # Show first evidence item in UI, keep it short
-            "Detected"
+    if ($ActiveIpText) {
+        if ([string]::IsNullOrWhiteSpace($ip)) {
+            $ActiveIpText.Text = "Not found"
         } else {
-            "Detected"
+            $ActiveIpText.Text = $ip
         }
-    } else {
-        "Not detected"
     }
 
-    if ($ManagedAvText) { $ManagedAvText.Text = $avText }
+    if ($ManagedAvText) {
+        if ($av.Detected) { $ManagedAvText.Text = "Detected" }
+        else { $ManagedAvText.Text = "Not detected" }
+    }
 
-    # Optional: show more detail in the footer status text (not spammy)
-    if ($av.Detected -and $av.Evidence.Count -gt 0) {
-        $StatusText.Text = "AV detected: $($av.Evidence[0])"
+    # Keep footer helpful but short
+    if ($av.Detected -and $av.Evidence -and $av.Evidence.Count -gt 0) {
+        $StatusText.Text = $av.Evidence[0]
     } else {
         $StatusText.Text = ""
     }
@@ -250,9 +256,9 @@ if ($RefreshInfoButton) {
 # Logic to run selected tasks
 # ---------------------------
 $RunButton.Add_Click({
-    $selected = $PrepTasks | Where-Object { $_.IsSelected }
+    $selected = @($PrepTasks | Where-Object { $_.IsSelected })
 
-    if (-not $selected) {
+    if ($selected.Count -eq 0) {
         [System.Windows.MessageBox]::Show("No tasks selected.", "Info", 'OK', 'Information') | Out-Null
         return
     }
@@ -271,7 +277,7 @@ $RunButton.Add_Click({
         }
         catch {
             $task.Status = "Failed"
-            Write-Warning "Task '$($task.Name)' failed: $_"
+            Write-Warning ("Task '{0}' failed: {1}" -f $task.Name, $_.Exception.Message)
         }
 
         $TaskList.Items.Refresh()
