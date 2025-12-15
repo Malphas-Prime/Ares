@@ -303,5 +303,5 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     ) | Out-Null
 }
 
-$Window.Topmost = $true
+$Window.Topmost = $false
 $Window.ShowDialog() | Out-Null
