@@ -174,38 +174,56 @@ if (Test-WinGet) {
 $cancelButton.Add_Click({ $window.Close() })
 
 $installButton.Add_Click({
-    $selected = $items | Where-Object { $_.IsSelected }
-    if (-not $selected) {
-        [System.Windows.MessageBox]::Show("No apps selected.", "Info", 'OK', 'Information') | Out-Null
-        return
-    }
+    try {
+        $selected = @($items | Where-Object { $_.IsSelected })
 
-    $installButton.IsEnabled = $false
-    $cancelButton.IsEnabled = $false
-
-    $logDir = Join-Path $env:ProgramData "Ares"
-    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-    $logPath = Join-Path $logDir ("BaseApps-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
-
-    $i = 0
-    foreach ($app in $selected) {
-        $i++
-        $progressText.Text = "Installing ($i/$($selected.Count)): $($app.Name)..."
-        $window.Dispatcher.Invoke([action]{})
-
-        try {
-            Add-Content -Path $logPath -Value ("`r`n==== " + $app.Name + " (" + $app.Id + ") ====")
-            $out = Invoke-WinGetInstall -Id $app.Id -Name $app.Name -Source $app.Source
-            $out | ForEach-Object { Add-Content -Path $logPath -Value $_ }
+        if ($selected.Count -eq 0) {
+            [System.Windows.MessageBox]::Show("No apps selected.", "Info", 'OK', 'Information') | Out-Null
+            return
         }
-        catch {
-            Add-Content -Path $logPath -Value ("ERROR: " + $_.Exception.Message)
-        }
-    }
 
-    $progressText.Text = "Done. Log: $logPath"
-    $cancelButton.IsEnabled = $true
-    $installButton.IsEnabled = $true
+        $installButton.IsEnabled = $false
+        $cancelButton.IsEnabled  = $false
+
+        $logDir = Join-Path $env:ProgramData "Ares"
+        if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+        $logPath = Join-Path $logDir ("BaseApps-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
+
+        $i = 0
+        foreach ($app in $selected) {
+            $i++
+
+            $progressText.Text = "Installing ($i/$($selected.Count)): $($app.Name)..."
+            $window.Dispatcher.Invoke([action]{})
+
+            try {
+                Add-Content -Path $logPath -Value ("`r`n==== " + $app.Name + " (" + $app.Id + ") ====")
+                $out = Invoke-WinGetInstall -Id $app.Id -Name $app.Name -Source $app.Source
+                $out | ForEach-Object { Add-Content -Path $logPath -Value $_ }
+            }
+            catch {
+                Add-Content -Path $logPath -Value ("ERROR installing " + $app.Name + ": " + $_.Exception.Message)
+            }
+        }
+
+        $progressText.Text = "Done. Log: $logPath"
+        $cancelButton.IsEnabled  = $true
+        $installButton.IsEnabled = $true
+
+        [System.Windows.MessageBox]::Show("Selected apps processed.`n`nLog: $logPath", "Completed", 'OK', 'Information') | Out-Null
+    }
+    catch {
+        # Prevent the exception from bubbling up and breaking ShowDialog()
+        [System.Windows.MessageBox]::Show(
+            ("Installer error:`n" + $_.Exception.Message),
+            "Error", 'OK', 'Error'
+        ) | Out-Null
+
+        $cancelButton.IsEnabled  = $true
+        $installButton.IsEnabled = $true
+    }
+})
+
 
     [System.Windows.MessageBox]::Show("Selected apps processed.`n`nLog: $logPath", "Completed", 'OK', 'Information') | Out-Null
 })
