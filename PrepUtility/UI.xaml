@@ -23,40 +23,46 @@
                        FontWeight="Bold"
                        Foreground="#202020" />
             <TextBlock Text="Select the tasks you want to run on this machine."
-                       Margin="0,2,0,6"
+                       Margin="0,2,0,0"
                        Foreground="#505050" />
 
-            <!-- Machine Info Bar -->
-            <Border Background="White"
+            <!-- Machine info row -->
+            <Border Margin="0,10,0,0"
+                    Background="White"
                     BorderBrush="#c0c0c0"
                     BorderThickness="1"
-                    CornerRadius="4"
-                    Padding="10"
-                    Margin="0,0,0,2">
+                    Padding="10">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="Hostname: " FontWeight="SemiBold" Foreground="#303030"/>
-                        <TextBlock Name="HostNameText" Text="-" Foreground="#202020" Margin="0,0,14,0"/>
+                    <StackPanel Grid.Column="0" Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Hostname:" Width="90" Foreground="#505050"/>
+                            <TextBlock Name="HostNameText" Text="-" FontWeight="SemiBold" Foreground="#202020"/>
+                        </StackPanel>
 
-                        <TextBlock Text="Active IPv4: " FontWeight="SemiBold" Foreground="#303030"/>
-                        <TextBlock Name="ActiveIpText" Text="-" Foreground="#202020" Margin="0,0,14,0"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Active IP:" Width="90" Foreground="#505050"/>
+                            <TextBlock Name="ActiveIpText" Text="-" FontWeight="SemiBold" Foreground="#202020"/>
+                        </StackPanel>
 
-                        <TextBlock Text="N-able Managed AV: " FontWeight="SemiBold" Foreground="#303030"/>
-                        <TextBlock Name="ManagedAvText" Text="-" Foreground="#202020"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="N-able AV:" Width="90" Foreground="#505050"/>
+                            <TextBlock Name="ManagedAvText" Text="-" FontWeight="SemiBold" Foreground="#202020"/>
+                        </StackPanel>
                     </StackPanel>
 
-                    <Button Grid.Column="1"
+                    <Button Grid.Column="2"
                             Name="RefreshInfoButton"
                             Content="Refresh"
                             Width="90"
                             Padding="8,4"
                             Margin="10,0,0,0"
-                            VerticalAlignment="Center"/>
+                            VerticalAlignment="Top"/>
                 </Grid>
             </Border>
         </StackPanel>
@@ -119,37 +125,37 @@
         </Border>
 
         <!-- Footer -->
-<DockPanel Grid.Row="2" LastChildFill="True">
+        <DockPanel Grid.Row="2" LastChildFill="True">
+            <TextBlock Name="StatusText"
+                       Margin="2,0,0,0"
+                       VerticalAlignment="Center"
+                       Foreground="#505050"
+                       DockPanel.Dock="Left" />
 
-    <TextBlock Name="StatusText"
-               Margin="2,0,0,0"
-               VerticalAlignment="Center"
-               Foreground="#505050"
-               DockPanel.Dock="Left" />
+            <StackPanel Orientation="Horizontal"
+                        DockPanel.Dock="Right"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center">
 
-    <!-- Right side: logo + buttons -->
-    <StackPanel Orientation="Horizontal"
-                DockPanel.Dock="Right"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Center">
+                <!-- Logo bottom-right -->
+                <Image Name="AresLogo"
+                       Source="https://ares.helionfall.com/assets/ares.png"
+                       Height="28"
+                       Margin="0,0,10,0"
+                       Stretch="Uniform"
+                       SnapsToDevicePixels="True" />
 
-        <Image Name="AresLogo"
-               Source="https://ares.mhsysu.com/assets/ares.png"
-               Height="28"
-               Margin="0,0,10,0"
-               Stretch="Uniform"
-               SnapsToDevicePixels="True" />
+                <Button Name="RunButton"
+                        Content="Run Selected"
+                        Width="120"
+                        Margin="0,0,8,0"
+                        Padding="8,4" />
+                <Button Name="CloseButton"
+                        Content="Close"
+                        Width="80"
+                        Padding="8,4" />
+            </StackPanel>
+        </DockPanel>
 
-        <Button Name="RunButton"
-                Content="Run Selected"
-                Width="120"
-                Margin="0,0,8,0"
-                Padding="8,4" />
-
-        <Button Name="CloseButton"
-                Content="Close"
-                Width="80"
-                Padding="8,4" />
-    </StackPanel>
-
-</DockPanel>
+    </Grid>
+</Window>
