@@ -1,7 +1,7 @@
 # modules/10-Join-Domain.ps1
 # Ares Prep Utility - Join Domain / Configure User (WPF guided)
-# Adds: Rename PC, Admin group adds include users + groups + built-ins
-# PowerShell 5.1 compatible
+# Includes: Rename PC, Add user, Add user/group to local Administrators, Join domain
+# PS 5.1 compatible
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -118,11 +118,9 @@ function Add-ToLocalAdmins {
         $mem = $mem.Trim()
 
         try {
-            # Add-LocalGroupMember accepts users, groups, and domain principals
             Add-LocalGroupMember -Group "Administrators" -Member $mem -ErrorAction Stop
-        }
-        catch {
-            # ignore duplicates or lookup weirdness; keep going
+        } catch {
+            # ignore duplicates / lookup oddities
         }
     }
 }
@@ -135,10 +133,10 @@ function Join-DomainSafe {
     )
 
     $addParams = @{
-        DomainName = $DomainName
-        Credential = $Credential
+        DomainName  = $DomainName
+        Credential  = $Credential
         ErrorAction = "Stop"
-        Force      = $true
+        Force       = $true
     }
     if ($OUPath) { $addParams["OUPath"] = $OUPath }
 
@@ -146,14 +144,14 @@ function Join-DomainSafe {
 }
 
 # ----------------------------
-# UI: Action selection (adds Rename PC)
+# UI: Action selection
 # ----------------------------
 function Show-SelectionWindow {
     $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Join Domain / Configure User"
-        Height="300" Width="460"
+        Height="320" Width="460"
         WindowStartupLocation="CenterScreen"
         Background="#f0f0f0"
         FontFamily="Segoe UI" FontSize="12"
@@ -172,12 +170,14 @@ function Show-SelectionWindow {
                  Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
-    <StackPanel Grid.Row="1" Background="White" Padding="10" BorderBrush="#c0c0c0" BorderThickness="1">
-      <CheckBox Name="RenamePc" Content="Rename PC" Margin="0,0,0,6"/>
-      <CheckBox Name="AddUser" Content="Add new user" Margin="0,0,0,6"/>
-      <CheckBox Name="AddAdmin" Content="Add user/group to Administrators group" Margin="0,0,0,6"/>
-      <CheckBox Name="JoinDomain" Content="Join domain" Margin="0,0,0,6"/>
-    </StackPanel>
+    <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
+      <StackPanel>
+        <CheckBox Name="RenamePc" Content="Rename PC" Margin="0,0,0,6"/>
+        <CheckBox Name="AddUser" Content="Add new user" Margin="0,0,0,6"/>
+        <CheckBox Name="AddAdmin" Content="Add user/group to Administrators group" Margin="0,0,0,6"/>
+        <CheckBox Name="JoinDomain" Content="Join domain" Margin="0,0,0,6"/>
+      </StackPanel>
+    </Border>
 
     <DockPanel Grid.Row="2" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
@@ -239,7 +239,7 @@ function Show-RenamePcWindow {
       <TextBlock Name="CurrentNameText" Text="Current: -" Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
-    <Border Grid.Row="1" Background="White" Padding="10" BorderBrush="#c0c0c0" BorderThickness="1">
+    <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
@@ -321,7 +321,7 @@ function Show-AddUserWindow {
     <TextBlock Grid.Row="0" Text="Create a local user"
                FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
 
-    <Border Grid.Row="1" Background="White" Padding="10" BorderBrush="#c0c0c0" BorderThickness="1">
+    <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
@@ -380,10 +380,10 @@ function Show-AddUserWindow {
         }
 
         $result = [pscustomobject]@{
-            UserName = $user.Trim()
-            FullName = $f.Text
-            Password = (ConvertTo-SecureString $p.Password -AsPlainText -Force)
-            NeverExpires = [bool]$n.IsChecked
+            UserName      = $user.Trim()
+            FullName      = $f.Text
+            Password      = (ConvertTo-SecureString $p.Password -AsPlainText -Force)
+            NeverExpires  = [bool]$n.IsChecked
         }
         $w.Close()
     })
@@ -392,17 +392,12 @@ function Show-AddUserWindow {
     return $result
 }
 
-# ----------------------------
-# UI: Add to Admins (users + groups + built-ins + DOMAIN\*)
-# ----------------------------
 function Show-AddAdminsWindow {
     $localUsers  = Get-LocalUsers
     $localGroups = Get-LocalGroups
 
-    # Build mixed list
     $listItems = New-Object System.Collections.ObjectModel.ObservableCollection[object]
 
-    # Built-ins (show if present)
     foreach ($b in @("Administrator", "Guest", "DefaultAccount")) {
         if ($localUsers -contains $b) {
             $listItems.Add([pscustomobject]@{ IsSelected=$false; Type="Built-in"; Name=$b }) | Out-Null
@@ -415,7 +410,7 @@ function Show-AddAdminsWindow {
     }
 
     foreach ($g in $localGroups) {
-        if ($g -eq "Administrators") { continue } # no point adding the group to itself
+        if ($g -eq "Administrators") { continue }
         $listItems.Add([pscustomobject]@{ IsSelected=$false; Type="Group"; Name=$g }) | Out-Null
     }
 
@@ -438,11 +433,11 @@ function Show-AddAdminsWindow {
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
       <TextBlock Text="Add users/groups to the local Administrators group"
                  FontSize="16" FontWeight="Bold" Foreground="#202020"/>
-      <TextBlock Text="Select local users, local groups, built-in accounts, and/or add DOMAIN\User or DOMAIN\Group."
+      <TextBlock Text="Select local users, local groups, built-ins, and/or add DOMAIN\User or DOMAIN\Group."
                  Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
-    <Border Grid.Row="1" Background="White" Padding="10" BorderBrush="#c0c0c0" BorderThickness="1">
+    <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
         <Grid.RowDefinitions>
           <RowDefinition Height="*"/>
@@ -487,12 +482,12 @@ function Show-AddAdminsWindow {
 "@
 
     $w = [Windows.Markup.XamlReader]::Parse($xaml)
-    $list  = $w.FindName("MemberList")
-    $box   = $w.FindName("DomainMemberBox")
-    $add   = $w.FindName("AddDomainMemberBtn")
-    $extra = $w.FindName("ExtraMembers")
-    $ok    = $w.FindName("OkBtn")
-    $cancel= $w.FindName("CancelBtn")
+    $list   = $w.FindName("MemberList")
+    $box    = $w.FindName("DomainMemberBox")
+    $add    = $w.FindName("AddDomainMemberBtn")
+    $extra  = $w.FindName("ExtraMembers")
+    $ok     = $w.FindName("OkBtn")
+    $cancel = $w.FindName("CancelBtn")
 
     $list.ItemsSource = $listItems
 
@@ -549,7 +544,7 @@ function Show-JoinDomainWindow {
     <TextBlock Grid.Row="0" Text="Join this computer to a domain"
                FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
 
-    <Border Grid.Row="1" Background="White" Padding="10" BorderBrush="#c0c0c0" BorderThickness="1">
+    <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
@@ -611,12 +606,12 @@ function Show-JoinDomainWindow {
             return
         }
 
-        $sec = ConvertTo-SecureString $p.Password -AsPlainText -Force
+        $sec  = ConvertTo-SecureString $p.Password -AsPlainText -Force
         $cred = New-Object System.Management.Automation.PSCredential ($u.Text.Trim(), $sec)
 
         $result = [pscustomobject]@{
-            Domain = $d.Text.Trim()
-            OUPath = $o.Text
+            Domain     = $d.Text.Trim()
+            OUPath     = $o.Text
             Credential = $cred
         }
         $w.Close()
@@ -639,7 +634,7 @@ if ((-not $sel.RenamePc) -and (-not $sel.AddUser) -and (-not $sel.AddAdmin) -and
     return
 }
 
-$renameInfo = $null
+$renameInfo  = $null
 $newUserInfo = $null
 $adminInfo   = $null
 $domainInfo  = $null
@@ -664,7 +659,6 @@ if ($sel.JoinDom) {
     if (-not $domainInfo) { return }
 }
 
-# Execute selections
 $summary = New-Object System.Collections.Generic.List[string]
 $needsReboot = $false
 
@@ -697,22 +691,13 @@ try {
     [System.Windows.MessageBox]::Show($msg, "Done", 'OK', 'Information') | Out-Null
 
     if ($needsReboot) {
-        $r = [System.Windows.MessageBox]::Show(
-            "Reboot now?",
-            "Restart Required",
-            'YesNo',
-            'Question'
-        )
+        $r = [System.Windows.MessageBox]::Show("Reboot now?", "Restart Required", 'YesNo', 'Question')
         if ($r -eq 'Yes') {
             Restart-Computer -Force
         }
     }
 }
 catch {
-    [System.Windows.MessageBox]::Show(
-        ("Failed:`n" + $_.Exception.Message),
-        "Error", 'OK', 'Error'
-    ) | Out-Null
+    [System.Windows.MessageBox]::Show(("Failed:`n" + $_.Exception.Message), "Error", 'OK', 'Error') | Out-Null
     throw
 }
-
