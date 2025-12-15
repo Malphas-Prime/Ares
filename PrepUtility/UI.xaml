@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Ares Prep Utility"
-        Height="480"
+        Height="520"
         Width="820"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
@@ -23,8 +23,42 @@
                        FontWeight="Bold"
                        Foreground="#202020" />
             <TextBlock Text="Select the tasks you want to run on this machine."
-                       Margin="0,2,0,0"
+                       Margin="0,2,0,6"
                        Foreground="#505050" />
+
+            <!-- Machine Info Bar -->
+            <Border Background="White"
+                    BorderBrush="#c0c0c0"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="10"
+                    Margin="0,0,0,2">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Hostname: " FontWeight="SemiBold" Foreground="#303030"/>
+                        <TextBlock Name="HostNameText" Text="-" Foreground="#202020" Margin="0,0,14,0"/>
+
+                        <TextBlock Text="Active IPv4: " FontWeight="SemiBold" Foreground="#303030"/>
+                        <TextBlock Name="ActiveIpText" Text="-" Foreground="#202020" Margin="0,0,14,0"/>
+
+                        <TextBlock Text="N-able Managed AV: " FontWeight="SemiBold" Foreground="#303030"/>
+                        <TextBlock Name="ManagedAvText" Text="-" Foreground="#202020"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="1"
+                            Name="RefreshInfoButton"
+                            Content="Refresh"
+                            Width="90"
+                            Padding="8,4"
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
         </StackPanel>
 
         <!-- Main list -->
