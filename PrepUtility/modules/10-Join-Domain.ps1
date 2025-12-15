@@ -92,14 +92,9 @@ function New-LocalUserSafe {
     }
 
     $existing = Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue
-    if ($existing) {
-        throw "Local user '$UserName' already exists."
-    }
+    if ($existing) { throw "Local user '$UserName' already exists." }
 
-    $params = @{
-        Name     = $UserName
-        Password = $Password
-    }
+    $params = @{ Name = $UserName; Password = $Password }
     if ($FullName) { $params["FullName"] = $FullName }
 
     $u = New-LocalUser @params
@@ -113,15 +108,11 @@ function Add-ToLocalAdmins {
     param([Parameter(Mandatory)][string[]]$Members)
 
     foreach ($m in $Members) {
-        $mem = $m
-        if ([string]::IsNullOrWhiteSpace($mem)) { continue }
-        $mem = $mem.Trim()
-
+        if ([string]::IsNullOrWhiteSpace($m)) { continue }
+        $mem = $m.Trim()
         try {
             Add-LocalGroupMember -Group "Administrators" -Member $mem -ErrorAction Stop
-        } catch {
-            # ignore duplicates / lookup oddities
-        }
+        } catch { }
     }
 }
 
@@ -144,7 +135,7 @@ function Join-DomainSafe {
 }
 
 # ----------------------------
-# UI: Action selection
+# UI windows (use $w.Tag for return values)
 # ----------------------------
 function Show-SelectionWindow {
     $xaml = @"
@@ -164,10 +155,8 @@ function Show-SelectionWindow {
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
-      <TextBlock Text="Select actions to perform"
-                 FontSize="16" FontWeight="Bold" Foreground="#202020"/>
-      <TextBlock Text="You’ll be prompted for details on the next screens."
-                 Margin="0,4,0,0" Foreground="#505050"/>
+      <TextBlock Text="Select actions to perform" FontSize="16" FontWeight="Bold" Foreground="#202020"/>
+      <TextBlock Text="You’ll be prompted for details on the next screens." Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
@@ -197,11 +186,9 @@ function Show-SelectionWindow {
     $next     = $w.FindName("NextBtn")
     $cancel   = $w.FindName("CancelBtn")
 
-    $result = $null
-
-    $cancel.Add_Click({ $w.Close() })
+    $cancel.Add_Click({ $w.Tag = $null; $w.Close() })
     $next.Add_Click({
-        $result = [pscustomobject]@{
+        $w.Tag = [pscustomobject]@{
             RenamePc = [bool]$renamePc.IsChecked
             AddUser  = [bool]$addUser.IsChecked
             AddAdmin = [bool]$addAdmin.IsChecked
@@ -211,7 +198,7 @@ function Show-SelectionWindow {
     })
 
     $null = $w.ShowDialog()
-    return $result
+    return $w.Tag
 }
 
 function Show-RenamePcWindow {
@@ -234,8 +221,7 @@ function Show-RenamePcWindow {
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
-      <TextBlock Text="Rename this computer"
-                 FontSize="16" FontWeight="Bold" Foreground="#202020"/>
+      <TextBlock Text="Rename this computer" FontSize="16" FontWeight="Bold" Foreground="#202020"/>
       <TextBlock Name="CurrentNameText" Text="Current: -" Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
@@ -252,9 +238,7 @@ function Show-RenamePcWindow {
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="New computer name:" VerticalAlignment="Center"/>
         <TextBox  Grid.Row="0" Grid.Column="1" Name="NameBox" Margin="0,2,0,6"/>
-
-        <TextBlock Grid.Row="1" Grid.Column="1" Text="Rules: <= 15 chars, letters/numbers/hyphen; not all numbers"
-                   Foreground="#505050"/>
+        <TextBlock Grid.Row="1" Grid.Column="1" Text="Rules: <= 15 chars, letters/numbers/hyphen; not all numbers" Foreground="#505050"/>
       </Grid>
     </Border>
 
@@ -277,9 +261,7 @@ function Show-RenamePcWindow {
     $cur.Text = "Current: $current"
     $box.Text = $current
 
-    $result = $null
-
-    $cancel.Add_Click({ $w.Close() })
+    $cancel.Add_Click({ $w.Tag = $null; $w.Close() })
     $ok.Add_Click({
         $err = Validate-ComputerName -Name $box.Text
         if ($err) {
@@ -293,12 +275,12 @@ function Show-RenamePcWindow {
             return
         }
 
-        $result = [pscustomobject]@{ NewName = $newName }
+        $w.Tag = [pscustomobject]@{ NewName = $newName }
         $w.Close()
     })
 
     $null = $w.ShowDialog()
-    return $result
+    return $w.Tag
 }
 
 function Show-AddUserWindow {
@@ -318,8 +300,7 @@ function Show-AddUserWindow {
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <TextBlock Grid.Row="0" Text="Create a local user"
-               FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
+    <TextBlock Grid.Row="0" Text="Create a local user" FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
@@ -365,12 +346,9 @@ function Show-AddUserWindow {
     $ok = $w.FindName("OkBtn")
     $cancel = $w.FindName("CancelBtn")
 
-    $result = $null
-
-    $cancel.Add_Click({ $w.Close() })
+    $cancel.Add_Click({ $w.Tag = $null; $w.Close() })
     $ok.Add_Click({
-        $user = $u.Text
-        if ([string]::IsNullOrWhiteSpace($user)) {
+        if ([string]::IsNullOrWhiteSpace($u.Text)) {
             [System.Windows.MessageBox]::Show("Username is required.", "Validation", 'OK', 'Warning') | Out-Null
             return
         }
@@ -379,17 +357,17 @@ function Show-AddUserWindow {
             return
         }
 
-        $result = [pscustomobject]@{
-            UserName      = $user.Trim()
-            FullName      = $f.Text
-            Password      = (ConvertTo-SecureString $p.Password -AsPlainText -Force)
-            NeverExpires  = [bool]$n.IsChecked
+        $w.Tag = [pscustomobject]@{
+            UserName     = $u.Text.Trim()
+            FullName     = $f.Text
+            Password     = (ConvertTo-SecureString $p.Password -AsPlainText -Force)
+            NeverExpires = [bool]$n.IsChecked
         }
         $w.Close()
     })
 
     $null = $w.ShowDialog()
-    return $result
+    return $w.Tag
 }
 
 function Show-AddAdminsWindow {
@@ -431,10 +409,8 @@ function Show-AddAdminsWindow {
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
-      <TextBlock Text="Add users/groups to the local Administrators group"
-                 FontSize="16" FontWeight="Bold" Foreground="#202020"/>
-      <TextBlock Text="Select local users, local groups, built-ins, and/or add DOMAIN\User or DOMAIN\Group."
-                 Margin="0,4,0,0" Foreground="#505050"/>
+      <TextBlock Text="Add users/groups to the local Administrators group" FontSize="16" FontWeight="Bold" Foreground="#202020"/>
+      <TextBlock Text="Select local users, local groups, built-ins, and/or add DOMAIN\User or DOMAIN\Group." Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
@@ -494,17 +470,14 @@ function Show-AddAdminsWindow {
     $extraMembers = New-Object System.Collections.ObjectModel.ObservableCollection[object]
     $extra.ItemsSource = $extraMembers
 
-    $result = $null
-
     $add.Add_Click({
-        $val = $box.Text
-        if (-not [string]::IsNullOrWhiteSpace($val)) {
-            $extraMembers.Add($val.Trim()) | Out-Null
+        if (-not [string]::IsNullOrWhiteSpace($box.Text)) {
+            $extraMembers.Add($box.Text.Trim()) | Out-Null
             $box.Text = ""
         }
     })
 
-    $cancel.Add_Click({ $w.Close() })
+    $cancel.Add_Click({ $w.Tag = $null; $w.Close() })
     $ok.Add_Click({
         $selectedLocal = @($listItems | Where-Object { $_.IsSelected } | Select-Object -ExpandProperty Name)
         $selectedExtra = @($extraMembers | ForEach-Object { $_.ToString() })
@@ -514,14 +487,12 @@ function Show-AddAdminsWindow {
             return
         }
 
-        $result = [pscustomobject]@{
-            Members = @($selectedLocal + $selectedExtra)
-        }
+        $w.Tag = [pscustomobject]@{ Members = @($selectedLocal + $selectedExtra) }
         $w.Close()
     })
 
     $null = $w.ShowDialog()
-    return $result
+    return $w.Tag
 }
 
 function Show-JoinDomainWindow {
@@ -541,8 +512,7 @@ function Show-JoinDomainWindow {
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <TextBlock Grid.Row="0" Text="Join this computer to a domain"
-               FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
+    <TextBlock Grid.Row="0" Text="Join this computer to a domain" FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
@@ -589,9 +559,7 @@ function Show-JoinDomainWindow {
     $ok = $w.FindName("OkBtn")
     $cancel = $w.FindName("CancelBtn")
 
-    $result = $null
-
-    $cancel.Add_Click({ $w.Close() })
+    $cancel.Add_Click({ $w.Tag = $null; $w.Close() })
     $ok.Add_Click({
         if ([string]::IsNullOrWhiteSpace($d.Text)) {
             [System.Windows.MessageBox]::Show("Domain is required.", "Validation", 'OK', 'Warning') | Out-Null
@@ -609,7 +577,7 @@ function Show-JoinDomainWindow {
         $sec  = ConvertTo-SecureString $p.Password -AsPlainText -Force
         $cred = New-Object System.Management.Automation.PSCredential ($u.Text.Trim(), $sec)
 
-        $result = [pscustomobject]@{
+        $w.Tag = [pscustomobject]@{
             Domain     = $d.Text.Trim()
             OUPath     = $o.Text
             Credential = $cred
@@ -618,7 +586,7 @@ function Show-JoinDomainWindow {
     })
 
     $null = $w.ShowDialog()
-    return $result
+    return $w.Tag
 }
 
 # ----------------------------
@@ -692,9 +660,7 @@ try {
 
     if ($needsReboot) {
         $r = [System.Windows.MessageBox]::Show("Reboot now?", "Restart Required", 'YesNo', 'Question')
-        if ($r -eq 'Yes') {
-            Restart-Computer -Force
-        }
+        if ($r -eq 'Yes') { Restart-Computer -Force }
     }
 }
 catch {
