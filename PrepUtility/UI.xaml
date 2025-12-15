@@ -139,7 +139,7 @@
 
                 <!-- Logo bottom-right -->
                 <Image Name="AresLogo"
-                       Source="https://ares.helionfall.com/assets/ares.png"
+                       Source="https://github.com/Malphas-Prime/Ares/blob/main/PrepUtility/assets/ares.png"
                        Height="28"
                        Margin="0,0,10,0"
                        Stretch="Uniform"
