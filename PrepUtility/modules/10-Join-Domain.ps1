@@ -237,8 +237,9 @@ function Show-RenamePcWindow {
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="New computer name:" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="0" Grid.Column="1" Name="NameBox" Margin="0,2,0,6"/>
-        <TextBlock Grid.Row="1" Grid.Column="1" Text="Rules: <= 15 chars, letters/numbers/hyphen; not all numbers" Foreground="#505050"/>
+        <TextBlock Grid.Row="1" Grid.Column="1"
+           Text="Rules: &lt;= 15 chars, letters/numbers/hyphen; not all numbers"
+           Foreground="#505050"/>
       </Grid>
     </Border>
 
