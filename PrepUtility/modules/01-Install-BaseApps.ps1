@@ -1,6 +1,6 @@
 # modules/01-Install-BaseApps.ps1
 # Ares Prep Utility - Base App Installer (WinGet + WPF picker)
-# Runs interactively (GUI) and installs selected apps silently using winget.
+# PowerShell 5.1 compatible (no PS7-only operators)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -23,7 +23,6 @@ function Invoke-WinGetInstall {
         [string]$Source = "winget"
     )
 
-    # Keep installs predictable across endpoints
     $args = @(
         "install",
         "--id", $Id,
@@ -35,14 +34,12 @@ function Invoke-WinGetInstall {
         "--disable-interactivity"
     )
 
-    # winget returns nonzero on failure; we capture output for logs.
+    # capture output for logs
     $out = & winget @args 2>&1
     return $out
 }
 
-# ---- App Catalog (Top ~30 common MSP/base build apps) ----
-# Note: Some apps are from "msstore" or have licensing prompts; this list sticks to reliable winget ids.
-# You can swap/add as needed.
+# ---- App Catalog (about 30 common base apps) ----
 $apps = @(
     @{ Name="Google Chrome";                Id="Google.Chrome";                       Source="winget"; Category="Browsers" }
     @{ Name="Mozilla Firefox";              Id="Mozilla.Firefox";                     Source="winget"; Category="Browsers" }
@@ -83,8 +80,7 @@ $apps = @(
     @{ Name="Microsoft 365 Apps (Retail)";  Id="Microsoft.Office";                    Source="winget"; Category="Microsoft" }
 )
 
-# ---- Build WPF Picker UI (inline XAML) ----
-# Shows a ListView with checkbox + name + category + winget id, plus Install/Cancel buttons.
+# ---- WPF picker UI ----
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -104,7 +100,7 @@ $xaml = @"
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
-      <TextBlock Text="Select apps to install (WinGet will pull latest versions)"
+      <TextBlock Text="Select apps to install (WinGet installs latest versions)"
                  FontSize="16" FontWeight="Bold" Foreground="#202020"/>
       <TextBlock Name="WinGetStatus" Text="Checking WinGet..." Margin="0,3,0,0" Foreground="#505050"/>
     </StackPanel>
@@ -140,7 +136,7 @@ $xaml = @"
 </Window>
 "@
 
-$window = [Windows.Markup.XamlReader]::Parse($xaml)
+$window        = [Windows.Markup.XamlReader]::Parse($xaml)
 $appList       = $window.FindName("AppList")
 $installButton = $window.FindName("InstallButton")
 $cancelButton  = $window.FindName("CancelButton")
@@ -148,7 +144,7 @@ $progressText  = $window.FindName("ProgressText")
 $wingetStatus  = $window.FindName("WinGetStatus")
 
 # Data binding collection
-$items = [System.Collections.ObjectModel.ObservableCollection[object]]::new()
+$items = New-Object System.Collections.ObjectModel.ObservableCollection[object]
 foreach ($a in $apps) {
     $items.Add([pscustomobject]@{
         IsSelected = $false
@@ -156,7 +152,6 @@ foreach ($a in $apps) {
         Category   = $a.Category
         Id         = $a.Id
         Source     = $a.Source
-        Status     = ""
     }) | Out-Null
 }
 $appList.ItemsSource = $items
@@ -171,8 +166,12 @@ if (Test-WinGet) {
     $installButton.IsEnabled = $false
 }
 
-$cancelButton.Add_Click({ $window.Close() })
+# Cancel
+$cancelButton.Add_Click({
+    $window.Close()
+})
 
+# Install handler (safe for 0 or 1 selections)
 $installButton.Add_Click({
     try {
         $selected = @($items | Where-Object { $_.IsSelected })
@@ -186,20 +185,21 @@ $installButton.Add_Click({
         $cancelButton.IsEnabled  = $false
 
         $logDir = Join-Path $env:ProgramData "Ares"
-        if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+        if (-not (Test-Path $logDir)) {
+            New-Item -ItemType Directory -Path $logDir | Out-Null
+        }
         $logPath = Join-Path $logDir ("BaseApps-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
 
         $i = 0
         foreach ($app in $selected) {
             $i++
-
             $progressText.Text = "Installing ($i/$($selected.Count)): $($app.Name)..."
             $window.Dispatcher.Invoke([action]{})
 
             try {
                 Add-Content -Path $logPath -Value ("`r`n==== " + $app.Name + " (" + $app.Id + ") ====")
                 $out = Invoke-WinGetInstall -Id $app.Id -Name $app.Name -Source $app.Source
-                $out | ForEach-Object { Add-Content -Path $logPath -Value $_ }
+                foreach ($line in @($out)) { Add-Content -Path $logPath -Value $line }
             }
             catch {
                 Add-Content -Path $logPath -Value ("ERROR installing " + $app.Name + ": " + $_.Exception.Message)
@@ -213,7 +213,6 @@ $installButton.Add_Click({
         [System.Windows.MessageBox]::Show("Selected apps processed.`n`nLog: $logPath", "Completed", 'OK', 'Information') | Out-Null
     }
     catch {
-        # Prevent the exception from bubbling up and breaking ShowDialog()
         [System.Windows.MessageBox]::Show(
             ("Installer error:`n" + $_.Exception.Message),
             "Error", 'OK', 'Error'
@@ -224,9 +223,5 @@ $installButton.Add_Click({
     }
 })
 
-
-    [System.Windows.MessageBox]::Show("Selected apps processed.`n`nLog: $logPath", "Completed", 'OK', 'Information') | Out-Null
-})
-
-# Show dialog
+# Show dialog (modal)
 $null = $window.ShowDialog()
