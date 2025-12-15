@@ -1,7 +1,11 @@
 # modules/10-Join-Domain.ps1
 # Ares Prep Utility - Join Domain / Configure User (WPF guided)
-# Includes: Rename PC, Add user, Add user/group to local Administrators, Join domain
-# PS 5.1 compatible
+# Features:
+#   - Rename PC (validated) + reboot handling
+#   - Add new local user
+#   - Add local users / local groups / built-ins / DOMAIN\* to local Administrators
+#   - Join domain (optional OU) + reboot handling
+# Compatibility: Windows PowerShell 5.1
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -19,6 +23,23 @@ function Assert-Admin {
         ) | Out-Null
         throw "Not running elevated."
     }
+}
+
+function Init-ChildWindow {
+    param([Parameter(Mandatory)]$Window)
+
+    # If main.ps1 sets $Global:AresMainWindow, this will keep dialogs on top of it.
+    try {
+        if ($Global:AresMainWindow) {
+            $Window.Owner = $Global:AresMainWindow
+            $Window.WindowStartupLocation = "CenterOwner"
+        } else {
+            $Window.WindowStartupLocation = "CenterScreen"
+        }
+    } catch { }
+
+    # Ensure dialog appears above normal windows (but do NOT keep main always-topmost).
+    try { $Window.Topmost = $true } catch { }
 }
 
 function Get-LocalUsers {
@@ -92,9 +113,14 @@ function New-LocalUserSafe {
     }
 
     $existing = Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue
-    if ($existing) { throw "Local user '$UserName' already exists." }
+    if ($existing) {
+        throw "Local user '$UserName' already exists."
+    }
 
-    $params = @{ Name = $UserName; Password = $Password }
+    $params = @{
+        Name     = $UserName
+        Password = $Password
+    }
     if ($FullName) { $params["FullName"] = $FullName }
 
     $u = New-LocalUser @params
@@ -112,7 +138,9 @@ function Add-ToLocalAdmins {
         $mem = $m.Trim()
         try {
             Add-LocalGroupMember -Group "Administrators" -Member $mem -ErrorAction Stop
-        } catch { }
+        } catch {
+            # ignore duplicates / lookup oddities
+        }
     }
 }
 
@@ -129,13 +157,13 @@ function Join-DomainSafe {
         ErrorAction = "Stop"
         Force       = $true
     }
-    if ($OUPath) { $addParams["OUPath"] = $OUPath }
+    if (-not [string]::IsNullOrWhiteSpace($OUPath)) { $addParams["OUPath"] = $OUPath }
 
     Add-Computer @addParams
 }
 
 # ----------------------------
-# UI windows (use $w.Tag for return values)
+# UI windows (return values via $w.Tag)
 # ----------------------------
 function Show-SelectionWindow {
     $xaml = @"
@@ -143,7 +171,6 @@ function Show-SelectionWindow {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Join Domain / Configure User"
         Height="320" Width="460"
-        WindowStartupLocation="CenterScreen"
         Background="#f0f0f0"
         FontFamily="Segoe UI" FontSize="12"
         ResizeMode="NoResize">
@@ -161,17 +188,17 @@ function Show-SelectionWindow {
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <StackPanel>
-        <CheckBox Name="RenamePc" Content="Rename PC" Margin="0,0,0,6"/>
-        <CheckBox Name="AddUser" Content="Add new user" Margin="0,0,0,6"/>
-        <CheckBox Name="AddAdmin" Content="Add user/group to Administrators group" Margin="0,0,0,6"/>
-        <CheckBox Name="JoinDomain" Content="Join domain" Margin="0,0,0,6"/>
+        <CheckBox x:Name="RenamePc" Content="Rename PC" Margin="0,0,0,6"/>
+        <CheckBox x:Name="AddUser" Content="Add new user" Margin="0,0,0,6"/>
+        <CheckBox x:Name="AddAdmin" Content="Add user/group to Administrators group" Margin="0,0,0,6"/>
+        <CheckBox x:Name="JoinDomain" Content="Join domain" Margin="0,0,0,6"/>
       </StackPanel>
     </Border>
 
     <DockPanel Grid.Row="2" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button Name="NextBtn" Content="Next" Width="90" Padding="10,5" Margin="0,0,8,0"/>
-        <Button Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
+        <Button x:Name="NextBtn" Content="Next" Width="90" Padding="10,5" Margin="0,0,8,0"/>
+        <Button x:Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
       </StackPanel>
     </DockPanel>
   </Grid>
@@ -179,6 +206,8 @@ function Show-SelectionWindow {
 "@
 
     $w = [Windows.Markup.XamlReader]::Parse($xaml)
+    Init-ChildWindow -Window $w
+
     $renamePc = $w.FindName("RenamePc")
     $addUser  = $w.FindName("AddUser")
     $addAdmin = $w.FindName("AddAdmin")
@@ -209,7 +238,6 @@ function Show-RenamePcWindow {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Rename PC"
         Height="230" Width="520"
-        WindowStartupLocation="CenterScreen"
         Background="#f0f0f0"
         FontFamily="Segoe UI" FontSize="12"
         ResizeMode="NoResize">
@@ -222,7 +250,7 @@ function Show-RenamePcWindow {
 
     <StackPanel Grid.Row="0" Margin="0,0,0,10">
       <TextBlock Text="Rename this computer" FontSize="16" FontWeight="Bold" Foreground="#202020"/>
-      <TextBlock Name="CurrentNameText" Text="Current: -" Margin="0,4,0,0" Foreground="#505050"/>
+      <TextBlock x:Name="CurrentNameText" Text="Current: -" Margin="0,4,0,0" Foreground="#505050"/>
     </StackPanel>
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
@@ -237,16 +265,17 @@ function Show-RenamePcWindow {
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="New computer name:" VerticalAlignment="Center"/>
+        <TextBox  Grid.Row="0" Grid.Column="1" x:Name="NameBox" Margin="0,2,0,6"/>
         <TextBlock Grid.Row="1" Grid.Column="1"
-           Text="Rules: &lt;= 15 chars, letters/numbers/hyphen; not all numbers"
-           Foreground="#505050"/>
+                   Text="Rules: &lt;= 15 chars, letters/numbers/hyphen; not all numbers"
+                   Foreground="#505050"/>
       </Grid>
     </Border>
 
     <DockPanel Grid.Row="2" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button Name="OkBtn" Content="Continue" Width="90" Padding="10,5" Margin="0,0,8,0"/>
-        <Button Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
+        <Button x:Name="OkBtn" Content="Continue" Width="90" Padding="10,5" Margin="0,0,8,0"/>
+        <Button x:Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
       </StackPanel>
     </DockPanel>
   </Grid>
@@ -254,12 +283,20 @@ function Show-RenamePcWindow {
 "@
 
     $w = [Windows.Markup.XamlReader]::Parse($xaml)
+    Init-ChildWindow -Window $w
+
     $cur = $w.FindName("CurrentNameText")
     $box = $w.FindName("NameBox")
     $ok  = $w.FindName("OkBtn")
     $cancel = $w.FindName("CancelBtn")
 
-    $cur.Text = "Current: $current"
+    if (-not $cur -or -not $box -or -not $ok -or -not $cancel) {
+        throw ("Rename PC UI is missing a named control. " +
+               "CurrentNameText=" + [bool]$cur + ", NameBox=" + [bool]$box +
+               ", OkBtn=" + [bool]$ok + ", CancelBtn=" + [bool]$cancel)
+    }
+
+    $cur.Text = ("Current: " + $current)
     $box.Text = $current
 
     $cancel.Add_Click({ $w.Tag = $null; $w.Close() })
@@ -290,7 +327,6 @@ function Show-AddUserWindow {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Add New Local User"
         Height="310" Width="520"
-        WindowStartupLocation="CenterScreen"
         Background="#f0f0f0"
         FontFamily="Segoe UI" FontSize="12"
         ResizeMode="NoResize">
@@ -301,7 +337,8 @@ function Show-AddUserWindow {
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <TextBlock Grid.Row="0" Text="Create a local user" FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
+    <TextBlock Grid.Row="0" Text="Create a local user"
+               FontSize="16" FontWeight="Bold" Foreground="#202020" Margin="0,0,0,10"/>
 
     <Border Grid.Row="1" Background="White" BorderBrush="#c0c0c0" BorderThickness="1" Padding="10">
       <Grid>
@@ -317,22 +354,22 @@ function Show-AddUserWindow {
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Username:" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="0" Grid.Column="1" Name="UserNameBox" Margin="0,2,0,8"/>
+        <TextBox  Grid.Row="0" Grid.Column="1" x:Name="UserNameBox" Margin="0,2,0,8"/>
 
         <TextBlock Grid.Row="1" Grid.Column="0" Text="Full name (optional):" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="1" Grid.Column="1" Name="FullNameBox" Margin="0,2,0,8"/>
+        <TextBox  Grid.Row="1" Grid.Column="1" x:Name="FullNameBox" Margin="0,2,0,8"/>
 
         <TextBlock Grid.Row="2" Grid.Column="0" Text="Password:" VerticalAlignment="Center"/>
-        <PasswordBox Grid.Row="2" Grid.Column="1" Name="PwdBox" Margin="0,2,0,8"/>
+        <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="PwdBox" Margin="0,2,0,8"/>
 
-        <CheckBox Grid.Row="3" Grid.Column="1" Name="NeverExpire" Content="Password never expires"/>
+        <CheckBox Grid.Row="3" Grid.Column="1" x:Name="NeverExpire" Content="Password never expires"/>
       </Grid>
     </Border>
 
     <DockPanel Grid.Row="2" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button Name="OkBtn" Content="Create" Width="90" Padding="10,5" Margin="0,0,8,0"/>
-        <Button Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
+        <Button x:Name="OkBtn" Content="Create" Width="90" Padding="10,5" Margin="0,0,8,0"/>
+        <Button x:Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
       </StackPanel>
     </DockPanel>
   </Grid>
@@ -340,6 +377,8 @@ function Show-AddUserWindow {
 "@
 
     $w = [Windows.Markup.XamlReader]::Parse($xaml)
+    Init-ChildWindow -Window $w
+
     $u = $w.FindName("UserNameBox")
     $f = $w.FindName("FullNameBox")
     $p = $w.FindName("PwdBox")
@@ -398,7 +437,6 @@ function Show-AddAdminsWindow {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Add to Administrators"
         Height="520" Width="720"
-        WindowStartupLocation="CenterScreen"
         Background="#f0f0f0"
         FontFamily="Segoe UI" FontSize="12"
         ResizeMode="NoResize">
@@ -422,7 +460,7 @@ function Show-AddAdminsWindow {
           <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <ListView Name="MemberList" Grid.Row="0" Margin="0,0,0,8">
+        <ListView x:Name="MemberList" Grid.Row="0" Margin="0,0,0,8">
           <ListView.View>
             <GridView>
               <GridViewColumn Width="40">
@@ -440,18 +478,18 @@ function Show-AddAdminsWindow {
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
           <TextBlock Text="Add DOMAIN\User or DOMAIN\Group:" VerticalAlignment="Center" Width="210"/>
-          <TextBox Name="DomainMemberBox" Width="390" Margin="0,0,8,0"/>
-          <Button Name="AddDomainMemberBtn" Content="Add" Width="60"/>
+          <TextBox x:Name="DomainMemberBox" Width="390" Margin="0,0,8,0"/>
+          <Button x:Name="AddDomainMemberBtn" Content="Add" Width="60"/>
         </StackPanel>
 
-        <ListBox Grid.Row="2" Name="ExtraMembers" Height="90"/>
+        <ListBox Grid.Row="2" x:Name="ExtraMembers" Height="90"/>
       </Grid>
     </Border>
 
     <DockPanel Grid.Row="2" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button Name="OkBtn" Content="Submit" Width="90" Padding="10,5" Margin="0,0,8,0"/>
-        <Button Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
+        <Button x:Name="OkBtn" Content="Submit" Width="90" Padding="10,5" Margin="0,0,8,0"/>
+        <Button x:Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
       </StackPanel>
     </DockPanel>
   </Grid>
@@ -459,6 +497,8 @@ function Show-AddAdminsWindow {
 "@
 
     $w = [Windows.Markup.XamlReader]::Parse($xaml)
+    Init-ChildWindow -Window $w
+
     $list   = $w.FindName("MemberList")
     $box    = $w.FindName("DomainMemberBox")
     $add    = $w.FindName("AddDomainMemberBtn")
@@ -502,7 +542,6 @@ function Show-JoinDomainWindow {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Join Domain"
         Height="360" Width="560"
-        WindowStartupLocation="CenterScreen"
         Background="#f0f0f0"
         FontFamily="Segoe UI" FontSize="12"
         ResizeMode="NoResize">
@@ -529,23 +568,23 @@ function Show-JoinDomainWindow {
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Domain (FQDN):" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="0" Grid.Column="1" Name="DomainBox" Margin="0,2,0,8"/>
+        <TextBox  Grid.Row="0" Grid.Column="1" x:Name="DomainBox" Margin="0,2,0,8"/>
 
         <TextBlock Grid.Row="1" Grid.Column="0" Text="OU Path (optional):" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="1" Grid.Column="1" Name="OUBox" Margin="0,2,0,8"/>
+        <TextBox  Grid.Row="1" Grid.Column="1" x:Name="OUBox" Margin="0,2,0,8"/>
 
         <TextBlock Grid.Row="2" Grid.Column="0" Text="Domain username:" VerticalAlignment="Center"/>
-        <TextBox  Grid.Row="2" Grid.Column="1" Name="UserBox" Margin="0,2,0,8" />
+        <TextBox  Grid.Row="2" Grid.Column="1" x:Name="UserBox" Margin="0,2,0,8" />
 
         <TextBlock Grid.Row="3" Grid.Column="0" Text="Domain password:" VerticalAlignment="Center"/>
-        <PasswordBox Grid.Row="3" Grid.Column="1" Name="PwdBox" Margin="0,2,0,0"/>
+        <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="PwdBox" Margin="0,2,0,0"/>
       </Grid>
     </Border>
 
     <DockPanel Grid.Row="2" Margin="0,10,0,0">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button Name="OkBtn" Content="Join" Width="90" Padding="10,5" Margin="0,0,8,0"/>
-        <Button Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
+        <Button x:Name="OkBtn" Content="Join" Width="90" Padding="10,5" Margin="0,0,8,0"/>
+        <Button x:Name="CancelBtn" Content="Cancel" Width="90" Padding="10,5"/>
       </StackPanel>
     </DockPanel>
   </Grid>
@@ -553,6 +592,8 @@ function Show-JoinDomainWindow {
 "@
 
     $w = [Windows.Markup.XamlReader]::Parse($xaml)
+    Init-ChildWindow -Window $w
+
     $d = $w.FindName("DomainBox")
     $o = $w.FindName("OUBox")
     $u = $w.FindName("UserBox")
