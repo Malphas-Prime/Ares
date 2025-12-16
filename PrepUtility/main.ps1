@@ -5,14 +5,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+Add-Type -AssemblyName PresentationFramework
+
 # ---------------------------
 # Config: where modules live
 # ---------------------------
 if ($DevMode) {
     $Global:ModuleBase = Split-Path -Parent $PSCommandPath
-}
-else {
-    # Raw GitHub URL pointing at this folder
+} else {
     $Global:ModuleBase = "https://raw.githubusercontent.com/Malphas-Prime/Ares/main/PrepUtility"
 }
 
@@ -24,8 +24,7 @@ function Get-RemoteScript {
 
     if ($DevMode) {
         return Get-Content -Raw -Path (Join-Path $ModuleBase $RelativePath)
-    }
-    else {
+    } else {
         $url = "$ModuleBase/$RelativePath"
         Write-Host "Downloading: $url"
         return (Invoke-WebRequest -UseBasicParsing -Uri $url -ErrorAction Stop).Content
@@ -33,126 +32,15 @@ function Get-RemoteScript {
 }
 
 # ---------------------------
-# UI + Types
-# ---------------------------
-Add-Type -AssemblyName PresentationFramework
-
-# ---------------------------
-# Machine info helpers (PS5.1 safe)
-# ---------------------------
-function Get-HostName {
-    return $env:COMPUTERNAME
-}
-
-function Get-ActiveIPv4 {
-    try {
-        # Prefer adapter with default route
-        $defaultIfIndex = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction Stop |
-            Sort-Object RouteMetric, ifMetric |
-            Select-Object -First 1).InterfaceIndex
-
-        if ($null -ne $defaultIfIndex) {
-            $cfg = Get-NetIPConfiguration -InterfaceIndex $defaultIfIndex -ErrorAction Stop
-            $ip  = ($cfg.IPv4Address | Select-Object -First 1).IPv4Address
-            if ($ip) { return $ip }
-        }
-
-        # Fallback: any UP adapter with a non-APIPA IPv4
-        $cfg2 = Get-NetIPConfiguration |
-            Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address } |
-            ForEach-Object {
-                [pscustomobject]@{
-                    IP = ($_.IPv4Address | Select-Object -First 1).IPv4Address
-                }
-            } |
-            Where-Object { $_.IP -and $_.IP -notlike "169.254.*" } |
-            Select-Object -First 1
-
-        return $cfg2.IP
-    }
-    catch {
-        return $null
-    }
-}
-
-function Test-NableManagedAV {
-    # Best-effort detection (common N-able Managed AV deployments are Bitdefender-based)
-    $hit = [ordered]@{
-        Detected = $false
-        Evidence = @()
-    }
-
-    # Service hints (varies by version)
-    $serviceHints = @(
-        "bdservicehost",
-        "bdredline",
-        "EPIntegrationService",
-        "Bitdefender*",
-        "BD*"
-    )
-
-    foreach ($s in $serviceHints) {
-        try {
-            $svcs = Get-Service -Name $s -ErrorAction SilentlyContinue
-            foreach ($svc in @($svcs)) {
-                if ($svc) {
-                    $hit.Detected = $true
-                    $hit.Evidence += ("Service: {0} ({1})" -f $svc.Name, $svc.Status)
-                }
-            }
-        } catch { }
-    }
-
-    # Uninstall registry (more reliable for product naming)
-    $uninstallPaths = @(
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-    )
-
-    $nameHints = @(
-        "N-able Managed Antivirus",
-        "Managed Antivirus",
-        "N-able",
-        "Bitdefender Endpoint Security Tools",
-        "Bitdefender"
-    )
-
-    foreach ($path in $uninstallPaths) {
-        try {
-            $apps = Get-ItemProperty -Path $path -ErrorAction SilentlyContinue
-            foreach ($a in @($apps)) {
-                $dn = $a.DisplayName
-                if (-not $dn) { continue }
-
-                foreach ($hint in $nameHints) {
-                    if ($dn -like "*$hint*") {
-                        $hit.Detected = $true
-                        $ver = $a.DisplayVersion
-                        if ($ver) {
-                            $hit.Evidence += ("App: {0} ({1})" -f $dn, $ver)
-                        } else {
-                            $hit.Evidence += ("App: {0}" -f $dn)
-                        }
-                        break
-                    }
-                }
-            }
-        } catch { }
-    }
-
-    return [pscustomobject]$hit
-}
-
-# ---------------------------
 # Data model – PSCustomObject
 # ---------------------------
-$Global:PrepTasks = New-Object System.Collections.ObjectModel.ObservableCollection[object]
+$Global:PrepTasks = [System.Collections.ObjectModel.ObservableCollection[object]]::new()
 
 function Add-PrepTask {
     param(
-        [string]$Name,
-        [string]$Description,
-        [string]$ScriptPath
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Description,
+        [Parameter(Mandatory)][string]$ScriptPath
     )
 
     $obj = [pscustomobject]@{
@@ -166,30 +54,15 @@ function Add-PrepTask {
     [void]$Global:PrepTasks.Add($obj)
 }
 
-# Define tasks
-Add-PrepTask -Name "Install Base Apps" `
-             -Description "Pick from the standard app list and install via WinGet." `
-             -ScriptPath "modules/01-Install-BaseApps.ps1"
-
-Add-PrepTask -Name "Remove OEM Bloat" `
-             -Description "Remove pre-installed OEM crapware and UWP junk." `
-             -ScriptPath "modules/02-Remove-Bloat.ps1"
-
-Add-PrepTask -Name "Tweaks" `
-             -Description "Pick and apply WinUtil tweaks (registry + invoke scripts)."
-             -ScriptPath "modules/04-Tweaks.ps1"
-
-Add-PrepTask -Name "Apply Windows Defaults" `
-             -Description "Set power settings, Explorer options, taskbar, etc." `
-             -ScriptPath "modules/03-Set-Defaults.ps1"
-
-Add-PrepTask -Name "Join Domain / Configure User" `
-             -Description "Rename PC, add users, add admins, join domain." `
-             -ScriptPath "modules/10-Join-Domain.ps1"
-
-Add-PrepTask -Name "Send System Info to CRM" `
-             -Description "Install your RMM agent and security tools." `
-             -ScriptPath "modules/20-Sent-to-CRM.ps1"
+# ---------------------------
+# Tasks (NO backticks — PS5.1 safe for iwr|iex)
+# ---------------------------
+Add-PrepTask -Name "Install Base Apps" -Description "Pick from top apps and install using winget." -ScriptPath "modules/01-Install-BaseApps.ps1"
+Add-PrepTask -Name "Debloat / Privacy (WinUtil + O&O)" -Description "Debloat options + OO ShutUp10++ recommended config." -ScriptPath "modules/02-Remove-Bloat.ps1"
+Add-PrepTask -Name "Apply Windows Defaults" -Description "Set power settings, Explorer options, taskbar, etc." -ScriptPath "modules/03-Set-Defaults.ps1"
+Add-PrepTask -Name "Tweaks (WinUtil)" -Description "Pick and apply WinUtil tweaks (registry + scripts)." -ScriptPath "modules/04-Tweaks.ps1"
+Add-PrepTask -Name "Join Domain / Configure User" -Description "Rename PC, add user, add to admins, join domain." -ScriptPath "modules/10-Join-Domain.ps1"
+Add-PrepTask -Name "Send System Info to CRM" -Description "Install your RMM agent and security tools." -ScriptPath "modules/20-Sent-to-CRM.ps1"
 
 # ---------------------------
 # Load XAML from external file
@@ -197,63 +70,91 @@ Add-PrepTask -Name "Send System Info to CRM" `
 if ($DevMode) {
     $xamlPath    = Join-Path $ModuleBase "UI.xaml"
     $XamlContent = Get-Content -Raw -Path $xamlPath
-}
-else {
+} else {
     $xamlUrl     = "$ModuleBase/UI.xaml"
     $XamlContent = (Invoke-WebRequest -UseBasicParsing -Uri $xamlUrl -ErrorAction Stop).Content
 }
 
 $Window      = [Windows.Markup.XamlReader]::Parse($XamlContent)
+$Global:AresMainWindow = $Window   # allow child windows to set Owner
+
 $TaskList    = $Window.FindName("TaskList")
 $RunButton   = $Window.FindName("RunButton")
 $CloseButton = $Window.FindName("CloseButton")
 $StatusText  = $Window.FindName("StatusText")
 
-# Machine info UI elements (added in UI.xaml)
-$HostNameText      = $Window.FindName("HostNameText")
-$ActiveIpText      = $Window.FindName("ActiveIpText")
-$ManagedAvText     = $Window.FindName("ManagedAvText")
+# Machine info fields (optional; only if UI.xaml contains them)
+$HostNameText = $Window.FindName("HostNameText")
+$ActiveIpText = $Window.FindName("ActiveIpText")
+$ManagedAvText = $Window.FindName("ManagedAvText")
 $RefreshInfoButton = $Window.FindName("RefreshInfoButton")
 
 # Bind tasks to list
 $TaskList.ItemsSource = $PrepTasks
 
-function Update-MachineInfoUI {
-    $hn = Get-HostName
-    $ip = Get-ActiveIPv4
-    $av = Test-NableManagedAV
-
-    if ($HostNameText) { $HostNameText.Text = $hn }
-
-    if ($ActiveIpText) {
-        if ([string]::IsNullOrWhiteSpace($ip)) {
-            $ActiveIpText.Text = "Not found"
-        } else {
-            $ActiveIpText.Text = $ip
+function Get-ActiveIPv4 {
+    try {
+        if (Get-Command Get-NetIPConfiguration -ErrorAction SilentlyContinue) {
+            $cfg = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1
+            if ($cfg -and $cfg.IPv4Address -and $cfg.IPv4Address.IPAddress) { return [string]$cfg.IPv4Address.IPAddress }
         }
-    }
+    } catch { }
 
-    if ($ManagedAvText) {
-        if ($av.Detected) { $ManagedAvText.Text = "Detected" }
-        else { $ManagedAvText.Text = "Not detected" }
-    }
+    # fallback (older systems)
+    try {
+        $ip = (Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true -and $_.DefaultIPGateway } | Select-Object -First 1).IPAddress
+        if ($ip) {
+            $v4 = $ip | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' } | Select-Object -First 1
+            return [string]$v4
+        }
+    } catch { }
 
-    # Keep footer helpful but short
-    if ($av.Detected -and $av.Evidence -and $av.Evidence.Count -gt 0) {
-        $StatusText.Text = $av.Evidence[0]
-    } else {
-        $StatusText.Text = ""
+    return $null
+}
+
+function Test-NableManagedAVInstalled {
+    # Best-effort detection. Adjust these as you confirm your environment.
+    # Checks common product/service names for N-able / Managed Antivirus / Bitdefender used under N-able.
+    $svcHits = @("ManagedAntivirus","Emsisoft","Bitdefender","BDAgent","bdredline","SolarWinds","N-able") # broad
+    try {
+        $svcs = Get-Service -ErrorAction SilentlyContinue
+        foreach ($h in $svcHits) {
+            if ($svcs | Where-Object { $_.Name -like "*$h*" -or $_.DisplayName -like "*$h*" }) { return $true }
+        }
+    } catch { }
+
+    try {
+        $uninstallPaths = @(
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+        )
+        foreach ($p in $uninstallPaths) {
+            $apps = Get-ItemProperty $p -ErrorAction SilentlyContinue
+            if ($apps | Where-Object { $_.DisplayName -match "N-?able|Managed Antivirus|SolarWinds|Bitdefender|Emsisoft" }) {
+                return $true
+            }
+        }
+    } catch { }
+
+    return $false
+}
+
+function Update-MachineInfoUI {
+    try {
+        $hn = $env:COMPUTERNAME
+        $ip = Get-ActiveIPv4
+        $av = Test-NableManagedAVInstalled
+
+        if ($HostNameText) { $HostNameText.Text = $hn }
+        if ($ActiveIpText) { $ActiveIpText.Text = ($(if ($ip) { $ip } else { "Not found" })) }
+        if ($ManagedAvText) { $ManagedAvText.Text = ($(if ($av) { "Detected" } else { "Not detected" })) }
+    } catch {
+        if ($ManagedAvText) { $ManagedAvText.Text = "Error" }
     }
 }
 
-# Populate on load
-Update-MachineInfoUI
-
-# Refresh button
 if ($RefreshInfoButton) {
-    $RefreshInfoButton.Add_Click({
-        Update-MachineInfoUI
-    })
+    $RefreshInfoButton.Add_Click({ Update-MachineInfoUI })
 }
 
 # ---------------------------
@@ -262,7 +163,7 @@ if ($RefreshInfoButton) {
 $RunButton.Add_Click({
     $selected = @($PrepTasks | Where-Object { $_.IsSelected })
 
-    if ($selected.Count -eq 0) {
+    if (-not $selected -or $selected.Count -eq 0) {
         [System.Windows.MessageBox]::Show("No tasks selected.", "Info", 'OK', 'Information') | Out-Null
         return
     }
@@ -274,6 +175,10 @@ $RunButton.Add_Click({
         $task.Status = "Running..."
         $TaskList.Items.Refresh()
 
+        # Allow child dialogs to appear on top by disabling Topmost on the main window while the module runs
+        $prevTop = $Window.Topmost
+        $Window.Topmost = $false
+
         try {
             $scriptContent = Get-RemoteScript -RelativePath $task.ScriptPath
             & ([scriptblock]::Create($scriptContent))
@@ -281,7 +186,10 @@ $RunButton.Add_Click({
         }
         catch {
             $task.Status = "Failed"
-            Write-Warning ("Task '{0}' failed: {1}" -f $task.Name, $_.Exception.Message)
+            Write-Warning "Task '$($task.Name)' failed: $($_.Exception.Message)"
+        }
+        finally {
+            $Window.Topmost = $prevTop
         }
 
         $TaskList.Items.Refresh()
@@ -291,9 +199,7 @@ $RunButton.Add_Click({
     $RunButton.IsEnabled = $true
 })
 
-$CloseButton.Add_Click({
-    $Window.Close()
-})
+$CloseButton.Add_Click({ $Window.Close() })
 
 # ---------------------------
 # Admin check & show window
@@ -307,5 +213,10 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     ) | Out-Null
 }
 
+# Do NOT keep the main window always-on-top; modules will own/topmost themselves.
 $Window.Topmost = $false
-$Window.ShowDialog() | Out-Null
+
+# Initial machine info
+Update-MachineInfoUI
+
+$null = $Window.ShowDialog()
