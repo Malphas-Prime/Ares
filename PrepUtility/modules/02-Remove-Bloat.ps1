@@ -9,32 +9,40 @@ function Get-JsonFromUrl {
     (Invoke-WebRequest -UseBasicParsing -Uri $Url -ErrorAction Stop).Content | ConvertFrom-Json
 }
 
+function Get-Prop {
+    param(
+        [Parameter(Mandatory=$true)]$Obj,
+        [Parameter(Mandatory=$true)][string]$Name,
+        [string]$Default = ""
+    )
+    if ($null -eq $Obj) { return $Default }
+    $p = $Obj.PSObject.Properties[$Name]
+    if ($null -eq $p) { return $Default }
+    $v = $p.Value
+    if ($null -eq $v) { return $Default }
+    return [string]$v
+}
+
 function Invoke-RegistryBatch {
     param([Parameter(Mandatory=$true)]$RegArray)
 
     foreach ($r in $RegArray) {
-        $path = [string]$r.Path
+        $path = Get-Prop -Obj $r -Name "Path" -Default ""
         if ([string]::IsNullOrWhiteSpace($path)) { continue }
 
         if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
 
-        $name = [string]$r.Name
-        $type = [string]$r.Type
+        $name = Get-Prop -Obj $r -Name "Name" -Default ""
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+
+        $type = Get-Prop -Obj $r -Name "Type" -Default "String"
         $value = $r.Value
 
-        if ([string]::IsNullOrWhiteSpace($name)) {
-            # Some entries are just "ensure key exists"
-            continue
-        }
-
         switch -Regex ($type) {
-            "DWord"  { New-ItemProperty -Path $path -Name $name -Value ([int]$value) -PropertyType DWord  -Force | Out-Null }
+            "DWord"  { New-ItemProperty -Path $path -Name $name -Value ([int]$value)  -PropertyType DWord  -Force | Out-Null }
             "QWord"  { New-ItemProperty -Path $path -Name $name -Value ([long]$value) -PropertyType QWord  -Force | Out-Null }
             "String" { New-ItemProperty -Path $path -Name $name -Value ([string]$value) -PropertyType String -Force | Out-Null }
-            default  {
-                # Fallback: try string
-                New-ItemProperty -Path $path -Name $name -Value ([string]$value) -PropertyType String -Force | Out-Null
-            }
+            default  { New-ItemProperty -Path $path -Name $name -Value ([string]$value) -PropertyType String -Force | Out-Null }
         }
     }
 }
@@ -45,13 +53,11 @@ function Invoke-ScriptArray {
     foreach ($s in $ScriptArray) {
         $text = [string]$s
         if ([string]::IsNullOrWhiteSpace($text)) { continue }
-        $sb = [scriptblock]::Create($text)
-        & $sb
+        & ([scriptblock]::Create($text))
     }
 }
 
 function Get-WinUtilTweaks {
-    # Full WinUtil tweak catalog
     $url = "https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/config/tweaks.json"
     Get-JsonFromUrl -Url $url
 }
@@ -59,42 +65,36 @@ function Get-WinUtilTweaks {
 function Get-DebloatCandidates {
     $tweaks = Get-WinUtilTweaks
 
-    # Flatten object-properties into a list
     $items = @()
     foreach ($p in $tweaks.PSObject.Properties) {
-        $name = $p.Name
+        $key = $p.Name
         $t = $p.Value
         if ($null -eq $t) { continue }
 
-        $cat = [string]$t.category
-        $content = [string]$t.Content
-        $desc = [string]$t.Description
+        $cat  = Get-Prop -Obj $t -Name "category" -Default "Uncategorized"
+        $name = Get-Prop -Obj $t -Name "Content"  -Default $key
+        $desc = Get-Prop -Obj $t -Name "Description" -Default ""
 
-        # Debloat-ish categories + common removals live in Advanced/CAUTION section in WinUtil docs
+        # Identify debloat-ish entries; WinUtil labeling changes over time, so keep it flexible.
         $isDebloat =
-            ($cat -match "De\s*Bloat") -or
-            ($content -match "Remove\s") -or
-            ($content -match "Debloat") -or
-            ($content -match "Remove OneDrive") -or
-            ($content -match "Remove Edge") -or
-            ($content -match "Remove Copilot") -or
-            ($content -match "Block Adobe") -or
-            ($content -match "Debloat Adobe")
+            ($cat  -match "(?i)debloat|bloat|privacy") -or
+            ($name -match "(?i)remove|debloat|bloat|oneDrive|copilot|widgets|xbox|appx") -or
+            ($desc -match "(?i)remove|debloat|bloat|appx|telemetry")
 
         if (-not $isDebloat) { continue }
 
         $items += [pscustomobject]@{
-            Key         = $name
+            Key         = $key
             IsSelected  = $false
             Category    = $cat
-            Name        = $content
+            Name        = $name
             Description = $desc
             Raw         = $t
             Status      = ""
         }
     }
 
-    # Add our own "OO ShutUp" action row (implemented below)
+    # Our own OOSU action row
     $items += [pscustomobject]@{
         Key         = "ARES_OOSU10_RECOMMENDED"
         IsSelected  = $false
@@ -115,7 +115,7 @@ function Invoke-OOSU10Recommended {
     $exePath = Join-Path $tempDir "OOSU10.exe"
     $cfgPath = Join-Path $tempDir "ooshutup10_recommended.cfg"
 
-    # O&O binary download (CDN referenced by WinUtil issue thread)
+    # O&O binary download
     $exeUrl = "https://dl5.oo-software.com/files/ooshutup10/OOSU10.exe"
     Invoke-WebRequest -UseBasicParsing -Uri $exeUrl -OutFile $exePath -ErrorAction Stop
 
@@ -123,7 +123,7 @@ function Invoke-OOSU10Recommended {
     $cfgUrl = "https://raw.githubusercontent.com/ChrisTitusTech/winutil/main/config/ooshutup10_recommended.cfg"
     (Invoke-WebRequest -UseBasicParsing -Uri $cfgUrl -ErrorAction Stop).Content | Out-File -FilePath $cfgPath -Encoding ASCII -Force
 
-    # Import silently (documented usage: OOSU10.exe cfg /quiet)
+    # Import silently
     & $exePath $cfgPath "/quiet" | Out-Null
 }
 
@@ -148,7 +148,7 @@ function New-DebloatWindowXaml {
 
     <StackPanel Grid.Row="0" Margin="0,0,0,8">
       <TextBlock Text="Debloat / Privacy" FontSize="18" FontWeight="Bold" Foreground="#202020"/>
-      <TextBlock Text="Select items and click Apply. Uses WinUtil’s debloat-related actions + optional OO ShutUp10++ recommended config."
+      <TextBlock Text="Select items and click Apply. Uses WinUtil debloat/privacy actions + optional OO ShutUp10++ recommended config."
                  Foreground="#505050" Margin="0,2,0,0"/>
     </StackPanel>
 
@@ -209,14 +209,20 @@ foreach ($i in $items) { [void]$view.Add($i) }
 $xaml = New-DebloatWindowXaml
 $w = [Windows.Markup.XamlReader]::Parse($xaml)
 
-$CategoryBox = $w.FindName("CategoryBox")
-$DebloatList = $w.FindName("DebloatList")
+# owner/topmost behavior
+try {
+    if ($Global:AresMainWindow) { $w.Owner = $Global:AresMainWindow; $w.WindowStartupLocation = "CenterOwner" }
+} catch { }
+try { $w.Topmost = $true } catch { }
+
+$CategoryBox  = $w.FindName("CategoryBox")
+$DebloatList  = $w.FindName("DebloatList")
 $SelectAllBtn = $w.FindName("SelectAllBtn")
-$ClearBtn = $w.FindName("ClearBtn")
-$CountText = $w.FindName("CountText")
-$StatusText = $w.FindName("StatusText")
-$ApplyBtn = $w.FindName("ApplyBtn")
-$CloseBtn = $w.FindName("CloseBtn")
+$ClearBtn     = $w.FindName("ClearBtn")
+$CountText    = $w.FindName("CountText")
+$StatusText   = $w.FindName("StatusText")
+$ApplyBtn     = $w.FindName("ApplyBtn")
+$CloseBtn     = $w.FindName("CloseBtn")
 
 $DebloatList.ItemsSource = $view
 
@@ -243,6 +249,7 @@ function Refresh-Filter {
 }
 
 $CategoryBox.Add_SelectionChanged({ Refresh-Filter })
+Refresh-Filter
 
 $SelectAllBtn.Add_Click({
     $src = $DebloatList.ItemsSource
@@ -280,9 +287,8 @@ $ApplyBtn.Add_Click({
             }
             else {
                 $raw = $row.Raw
-
-                if ($raw.registry)     { Invoke-RegistryBatch -RegArray $raw.registry }
-                if ($raw.InvokeScript) { Invoke-ScriptArray -ScriptArray $raw.InvokeScript }
+                if ($raw -and $raw.PSObject.Properties["registry"] -and $raw.registry) { Invoke-RegistryBatch -RegArray $raw.registry }
+                if ($raw -and $raw.PSObject.Properties["InvokeScript"] -and $raw.InvokeScript) { Invoke-ScriptArray -ScriptArray $raw.InvokeScript }
             }
 
             $row.Status = "Done"
@@ -300,6 +306,4 @@ $ApplyBtn.Add_Click({
 
 $CloseBtn.Add_Click({ $w.Close() })
 
-# Show on top of owner (main window stays sane)
-$w.Topmost = $true
 $null = $w.ShowDialog()
