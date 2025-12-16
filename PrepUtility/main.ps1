@@ -175,6 +175,10 @@ Add-PrepTask -Name "Remove OEM Bloat" `
              -Description "Remove pre-installed OEM crapware and UWP junk." `
              -ScriptPath "modules/02-Remove-Bloat.ps1"
 
+Add-PrepTask -Name "Tweaks" `
+             -Description "Pick and apply WinUtil tweaks (registry + invoke scripts)."
+             -ScriptPath "modules/04-Tweaks.ps1"
+
 Add-PrepTask -Name "Apply Windows Defaults" `
              -Description "Set power settings, Explorer options, taskbar, etc." `
              -ScriptPath "modules/03-Set-Defaults.ps1"
