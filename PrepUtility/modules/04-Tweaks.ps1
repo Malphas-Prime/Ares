@@ -9,23 +9,37 @@ function Get-JsonFromUrl {
     (Invoke-WebRequest -UseBasicParsing -Uri $Url -ErrorAction Stop).Content | ConvertFrom-Json
 }
 
+function Get-Prop {
+    param(
+        [Parameter(Mandatory=$true)]$Obj,
+        [Parameter(Mandatory=$true)][string]$Name,
+        [string]$Default = ""
+    )
+    if ($null -eq $Obj) { return $Default }
+    $p = $Obj.PSObject.Properties[$Name]
+    if ($null -eq $p) { return $Default }
+    $v = $p.Value
+    if ($null -eq $v) { return $Default }
+    return [string]$v
+}
+
 function Invoke-RegistryBatch {
     param([Parameter(Mandatory=$true)]$RegArray)
 
     foreach ($r in $RegArray) {
-        $path = [string]$r.Path
+        $path = Get-Prop -Obj $r -Name "Path" -Default ""
         if ([string]::IsNullOrWhiteSpace($path)) { continue }
 
         if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
 
-        $name = [string]$r.Name
+        $name = Get-Prop -Obj $r -Name "Name" -Default ""
         if ([string]::IsNullOrWhiteSpace($name)) { continue }
 
-        $type = [string]$r.Type
+        $type = Get-Prop -Obj $r -Name "Type" -Default "String"
         $value = $r.Value
 
         switch -Regex ($type) {
-            "DWord"  { New-ItemProperty -Path $path -Name $name -Value ([int]$value) -PropertyType DWord  -Force | Out-Null }
+            "DWord"  { New-ItemProperty -Path $path -Name $name -Value ([int]$value)  -PropertyType DWord  -Force | Out-Null }
             "QWord"  { New-ItemProperty -Path $path -Name $name -Value ([long]$value) -PropertyType QWord  -Force | Out-Null }
             "String" { New-ItemProperty -Path $path -Name $name -Value ([string]$value) -PropertyType String -Force | Out-Null }
             default  { New-ItemProperty -Path $path -Name $name -Value ([string]$value) -PropertyType String -Force | Out-Null }
@@ -94,8 +108,8 @@ function New-TweaksWindowXaml {
             </GridViewColumn>
 
             <GridViewColumn Header="Category" Width="260" DisplayMemberBinding="{Binding Category}"/>
-            <GridViewColumn Header="Tweak" Width="260" DisplayMemberBinding="{Binding Name}"/>
-            <GridViewColumn Header="Description" Width="420">
+            <GridViewColumn Header="Tweak" Width="280" DisplayMemberBinding="{Binding Name}"/>
+            <GridViewColumn Header="Description" Width="400">
               <GridViewColumn.CellTemplate>
                 <DataTemplate>
                   <TextBlock Text="{Binding Description}" TextWrapping="Wrap"/>
@@ -120,7 +134,9 @@ function New-TweaksWindowXaml {
 "@
 }
 
-# Load + flatten
+# ---------------------------
+# Load + flatten safely
+# ---------------------------
 $tweaks = Get-WinUtilTweaks
 
 $rows = @()
@@ -129,24 +145,42 @@ foreach ($p in $tweaks.PSObject.Properties) {
     $t = $p.Value
     if ($null -eq $t) { continue }
 
+    $cat  = Get-Prop -Obj $t -Name "category" -Default "Uncategorized"
+    $name = Get-Prop -Obj $t -Name "Content"  -Default $k
+
+    # Some entries don't have Description; default empty.
+    $desc = Get-Prop -Obj $t -Name "Description" -Default ""
+
+    # Ignore empty
+    if ([string]::IsNullOrWhiteSpace($name)) { continue }
+
     $rows += [pscustomobject]@{
         Key         = $k
         IsSelected  = $false
-        Category    = [string]$t.category
-        Name        = [string]$t.Content
-        Description = [string]$t.Description
+        Category    = $cat
+        Name        = $name
+        Description = $desc
         Raw         = $t
         Status      = ""
     }
 }
 
-$rows = $rows | Where-Object { $_.Name } | Sort-Object Category, Name
+$rows = $rows | Sort-Object Category, Name
 
 $view = New-Object System.Collections.ObjectModel.ObservableCollection[object]
 foreach ($r in $rows) { [void]$view.Add($r) }
 
+# ---------------------------
+# UI
+# ---------------------------
 $xaml = New-TweaksWindowXaml
 $w = [Windows.Markup.XamlReader]::Parse($xaml)
+
+# owner/topmost behavior
+try {
+    if ($Global:AresMainWindow) { $w.Owner = $Global:AresMainWindow; $w.WindowStartupLocation = "CenterOwner" }
+} catch { }
+try { $w.Topmost = $true } catch { }
 
 $CategoryBox = $w.FindName("CategoryBox")
 $TweakList = $w.FindName("TweakList")
@@ -182,6 +216,7 @@ function Refresh-Filter {
 }
 
 $CategoryBox.Add_SelectionChanged({ Refresh-Filter })
+Refresh-Filter
 
 $SelectAllBtn.Add_Click({
     $src = $TweakList.ItemsSource
@@ -215,8 +250,8 @@ $ApplyBtn.Add_Click({
 
         try {
             $raw = $row.Raw
-            if ($raw.registry)     { Invoke-RegistryBatch -RegArray $raw.registry }
-            if ($raw.InvokeScript) { Invoke-ScriptArray -ScriptArray $raw.InvokeScript }
+            if ($raw.PSObject.Properties["registry"] -and $raw.registry)     { Invoke-RegistryBatch -RegArray $raw.registry }
+            if ($raw.PSObject.Properties["InvokeScript"] -and $raw.InvokeScript) { Invoke-ScriptArray -ScriptArray $raw.InvokeScript }
             $row.Status = "Done"
         }
         catch {
@@ -232,5 +267,4 @@ $ApplyBtn.Add_Click({
 
 $CloseBtn.Add_Click({ $w.Close() })
 
-$w.Topmost = $true
 $null = $w.ShowDialog()
